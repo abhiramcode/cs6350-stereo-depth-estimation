@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+
+# UV lock (optional: keep or ignore)
+# uv.lock
+
+# Datasets (large files)
+data/
+!data/.gitkeep
+
+# Checkpoints & model weights
+checkpoints/
+*.ckpt
+*.pth
+*.onnx
+
+# Generated outputs
+outputs/
+*.npy
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Reports (generated assets, not templates)
+reports/*.png
+reports/*.jpg
+reports/*.csv

@@ -1,0 +1,57 @@
+# ─── Dataset Configuration ─────────────────────────────────────────
+# All paths are relative to the project root.
+# Adjust 'root' values if datasets are stored elsewhere.
+
+kitti2015:
+  root: "data/kitti2015"
+  splits:
+    val_tune:
+      description: "First 40 of 200 training scenes (20%) — for shallow hyperparameter tuning"
+      indices: null   # auto: 0–39
+    eval_test:
+      description: "Remaining 160 of 200 training scenes (80%) — for final quantitative reporting"
+      indices: null   # auto: 40–199
+    test_visual:
+      description: "Official test split (200 scenes) — no GT, qualitative only"
+      indices: null
+  disparity:
+    format: "uint16_png"
+    scale: 256.0          # disp = raw / 256.0
+    invalid_value: 0      # raw == 0 → invalid
+  foreground:
+    source: "obj_map"     # KITTI provides semantic object labels
+    provenance: "semantic_gt"
+  depth_eval:
+    min_depth_m: 0.5
+    max_depth_m: 80.0
+
+eth3d:
+  root: "data/eth3d"
+  splits:
+    val_tune:
+      description: "First 5 of 27 training scenes (≈20%) — alphabetically sorted"
+      scenes: null   # auto: first 5
+    eval_test:
+      description: "Remaining 22 of 27 training scenes (≈80%)"
+      scenes: null   # auto: last 22
+    test_visual:
+      description: "Official test split (20 scenes) — no GT, qualitative only"
+      scenes: null
+  disparity:
+    format: "pfm"
+    invalid_rule: "not_finite_or_leq_zero"  # valid = isfinite(d) & (d > 0)
+  foreground:
+    source: "unavailable"
+    # Geometric proxy (median-disp threshold) available via fg_masking.py
+    # Semantic masks deferred to Stage 4/5 (pre-trained segmentation)
+    provenance: "unavailable"
+  depth_eval:
+    min_depth_m: 0.0
+    max_depth_m: null  # scene-dependent (no fixed cap)
+
+custom_eval:
+  root: "data/custom_eval"
+  description: "Drop-in folder for evaluation-day unknown stereo pairs"
+  layout: "left/ and right/ sub-directories, or left_<id>/right_<id> flat naming"
+  calib_file: "calib.yaml"   # optional: f_px and baseline_m
+  # All GT fields will be None

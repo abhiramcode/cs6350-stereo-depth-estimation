@@ -1,0 +1,50 @@
+# ─── Deep Stereo Method Configurations ─────────────────────────────────
+# HITNet (CVPR 2021) ONNX models
+
+HITNet_ETH3D:
+  method_name: HITNet_ETH3D
+  model_variant: eth3d
+  resolution: 640x480
+  device: auto
+  auto_download: true
+
+HITNet_SceneFlow:
+  method_name: HITNet_SceneFlow
+  model_variant: sceneflow
+  resolution: 640x480
+  device: auto
+  auto_download: true
+
+# Fast-ACVNet+ (TPAMI 2023 / CVPR 2022) ONNX models
+Fast_ACVNet_Generalization:
+  method_name: Fast_ACVNet_Generalization
+  model_variant: generalization
+  resolution: 640x480
+  interpolation: linear
+  device: auto
+  auto_download: true
+
+Fast_ACVNet_KITTI2015:
+  method_name: Fast_ACVNet_KITTI2015
+  model_variant: kitti_2015
+  resolution: 640x480
+  interpolation: linear
+  device: auto
+  auto_download: true
+
+# Dusk Till Dawn (ICRA 2024) PyTorch model
+DuskTillDawn_Fast:
+  method_name: DuskTillDawn_Fast
+  resolution: 320x192
+  interpolation: linear
+  device: auto
+  auto_download: true
+
+DuskTillDawn_HighRes:
+  method_name: DuskTillDawn_HighRes
+  resolution: 640x384
+  interpolation: linear
+  device: auto
+  auto_download: true
+
+

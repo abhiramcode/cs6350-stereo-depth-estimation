@@ -1,0 +1,47 @@
+# ─── Shallow Stereo Method Configurations ──────────────────────────────
+# These are initial (untuned) parameters.
+# Tuning will be performed on val_tune splits in a later step.
+
+StereoBM:
+  numDisparities: 128     # search range (multiple of 16)
+  blockSize: 15           # SAD window (odd, >= 5)
+  preFilterType: 1        # PREFILTER_XSOBEL
+  preFilterSize: 9
+  preFilterCap: 31
+  textureThreshold: 10
+  uniquenessRatio: 15
+  minDisparity: 0
+  speckleWindowSize: 100
+  speckleRange: 32
+
+StereoSGBM:
+  numDisparities: 128
+  blockSize: 5
+  minDisparity: 0
+  P1: null                # auto: 8 * cn * blockSize^2
+  P2: null                # auto: 32 * cn * blockSize^2
+  uniquenessRatio: 10
+  disp12MaxDiff: 1
+  speckleWindowSize: 100
+  speckleRange: 32
+  mode: 3                 # STEREO_SGBM_MODE_SGBM_3WAY
+  preFilterCap: 63
+  use_wls_filter: false
+  wls_lambda: 8000.0
+  wls_sigma: 1.5
+
+StereoSGBM_WLS:
+  numDisparities: 128
+  blockSize: 5
+  minDisparity: 0
+  P1: null
+  P2: null
+  uniquenessRatio: 10
+  disp12MaxDiff: 1
+  speckleWindowSize: 100
+  speckleRange: 32
+  mode: 3
+  preFilterCap: 63
+  use_wls_filter: true
+  wls_lambda: 8000.0
+  wls_sigma: 1.5

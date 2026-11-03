@@ -1,0 +1,44 @@
+StereoBM:
+  method_name: StereoBM
+  numDisparities: 64
+  blockSize: 21
+  preFilterType: 1
+  preFilterSize: 9
+  preFilterCap: 31
+  textureThreshold: 10
+  uniquenessRatio: 10
+  minDisparity: 0
+  speckleWindowSize: 100
+  speckleRange: 32
+StereoSGBM:
+  method_name: StereoSGBM
+  numDisparities: 64
+  blockSize: 7
+  minDisparity: 0
+  P1: null
+  P2: null
+  uniquenessRatio: 15
+  disp12MaxDiff: 1
+  speckleWindowSize: 100
+  speckleRange: 32
+  mode: 3
+  use_wls_filter: false
+  wls_lambda: 8000.0
+  wls_sigma: 1.5
+  preFilterCap: 63
+StereoSGBM_WLS:
+  method_name: StereoSGBM_WLS
+  numDisparities: 64
+  blockSize: 7
+  minDisparity: 0
+  P1: null
+  P2: null
+  uniquenessRatio: 15
+  disp12MaxDiff: 1
+  speckleWindowSize: 100
+  speckleRange: 32
+  mode: 3
+  use_wls_filter: true
+  wls_lambda: 8000.0
+  wls_sigma: 1.5
+  preFilterCap: 63
