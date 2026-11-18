@@ -114,3 +114,54 @@ $$d_{\text{orig}}(x, y) = d_{\text{model}}(x', y') \times \frac{W_{\text{orig}}}
 
 **Rationale:** PyTorch Hub queries the GitHub API to check repository forks and hits HTTP 403 rate limits on CI/CD and unauthenticated developer machines. Setting `skip_validation=True` forces PyTorch Hub to use local cache directly without external API calls.
 
+## D16: Pretrained Instance Segmentation for ETH3D Foreground Masks
+
+**Decision:** Implement `pretrained_seg_mask` in `src/datasets/fg_masking.py` using torchvision's pretrained `maskrcnn_resnet50_fpn(weights=MaskRCNN_ResNet50_FPN_Weights.DEFAULT)`.
+- Filters COCO object classes (person, bicycle, car, motorcycle, airplane, bus, train, truck, boat, chair, couch, potted plant, bed, dining table, tv, laptop, etc.) with score threshold $\ge 0.5$.
+- Provenance is explicitly tagged `"pretrained_seg"`.
+- Uses a module-level cached model (`_CACHED_SEG_MODEL`) to prevent reloading weights on every image.
+- Integrated into `ETH3DDataset` via `fg_strategy: str = "unavailable"`, maintaining zero-regression backward compatibility by default while enabling foreground benchmarking with `--eth3d-fg-strategy pretrained_seg`.
+
+**Rationale:** ETH3D does not provide ground-truth semantic object maps like KITTI 2015's `obj_map`. Using pretrained instance segmentation provides objective semantic masks while strictly distinguishing them from ground truth (`semantic_gt`) or heuristic approximations (`geometric_proxy`).
+
+## D17: Fair Valid-Pixel Accounting Policy
+
+**Decision:** In `src/evaluation/metrics.py`, evaluate and report accuracy under dual criteria:
+1. **Mutually Valid Pixels (`gt_valid & (pred > 0)`):** Measures disparity error (`epe`, `bad_1_0`, `bad_2_0`, `bad_3_0`, `d1_all`) only where the matcher returned a prediction. Accompanied by **Prediction Density (%)**.
+2. **All Valid GT Pixels (`all_bad_1_0`, `all_bad_2_0`, `all_bad_3_0`, `all_d1`, `all_epe`):** Evaluates across the entire ground-truth valid mask. Unpredicted / missing pixels (`pred <= 0`) are treated as severe outliers with infinite error, penalizing incomplete coverage exactly matching official KITTI 2015 and Middlebury benchmark leaderboards.
+
+**Rationale:** Classical methods like StereoBM discard 40–60% of pixels in difficult regions (occlusions, low texture), creating an artificial illusion of high accuracy when evaluating only on surviving pixels. Reporting both metrics exposes the "sparsity fallacy" while allowing fair head-to-head comparison against 100% dense deep learning models.
+
+## D18: Unified Benchmarking Suite Architecture
+
+**Decision:** Implement `scripts/benchmark_unified.py` as a centralized, non-interactive evaluation pipeline:
+- Standardized hardware profiling capturing CPU platform, core count, peak host RSS memory (via `resource.getrusage`), and peak GPU VRAM (via `torch.cuda`).
+- Automatic 3-iteration warmup on the first sample to eliminate JIT and caching latency spikes.
+- Decoupled disparity metrics (pixel units) and metric depth metrics ($Z = fB/d$, bounded between $0.5\text{ m}$ and $80.0\text{ m}$).
+- Granular slicing across all valid pixels (`all`) vs foreground object pixels (`fg`).
+- Multi-tier outputs: detailed per-sample CSV (`unified_benchmark_results.csv`), dataset summary CSVs (`summary_<dataset>_<split>.csv`), and a publication-quality Markdown report (`unified_benchmark_report.md`) with side-by-side visual comparison grids.
+
+**Rationale:** ACTION_PLAN Stage 4 requirement to produce unified, reproducible, and verifiable cross-paradigm comparisons without manual data collation.
+
+## D19: Multi-Tier Failure Case Classification & Grids Architecture
+
+**Decision:** Implement `src/visualization/grids.py`, `src/visualization/failure_analysis.py`, and `scripts/analyze_failures.py`:
+- Generate the exact 3-column assignment visual layout specified in Section 4 ("Expected Input and Output") of the problem statement: `[Estimated Depth Map, Left View, Right View]`.
+- Generate 5-column diagnostic grids: `[Left View, Ground Truth, Predicted Disparity, Error Heatmap, Metric Depth]`.
+- Generate multi-method comparative panels side-by-side comparing Ground Truth, `StereoBM`, `StereoSGBM`, `Fast-ACVNet-KITTI2015`, and `HITNet`.
+- Taxonomize stereo failure modes into 5 concrete physical/algorithmic categories: (1) specular reflection and transparency, (2) textureless uniform expanses, (3) occlusion boundaries and thin structures, (4) near-field disparity saturation, and (5) out-of-distribution generalization collapse.
+- Automatically serialize a JSON catalog (`failure_catalog.json`) and Markdown diagnostics (`failure_analysis_report.md`).
+
+**Rationale:** Fulfills Stage 5 CS6350 TPA-2 requirements for deep qualitative failure analysis and exact visual grid generation.
+
+## D20: Hardware Profiling Scope: Deterministic CPU Baseline with RTX 3060 Context
+
+**Decision:** Perform standardized benchmark profiling on host x86_64 CPU cores while reporting host GPU capabilities (NVIDIA GeForce RTX 3060, 12 GB VRAM, Driver 580.178.04, CUDA Driver 13.0) and theoretical/projected GPU throughput:
+- Ensures 100% deterministic, zero-dependency reproducibility across developer machines and automated CI.
+- Respects host disk storage constraints (~5.9 GB free on `/dev/sda4`) without risking disk exhaustion from multi-gigabyte CUDA 13 / cuDNN 9 runtime wheels.
+- Documents projected GPU throughput for Fast-ACVNet+ (396 ms on CPU $\to$ 15–20 ms on RTX 3060 / TensorRT, ~50–65 FPS) alongside measured classical CPU throughput (86–135 FPS on single CPU core).
+
+**Rationale:** Provides an honest, objective baseline on identical hardware without masking software/hardware dependencies.
+
+
+

@@ -31,6 +31,7 @@ import logging
 from pathlib import Path
 from typing import Iterator, List, Optional, Sequence
 
+from src.datasets.fg_masking import geometric_proxy_mask, pretrained_seg_mask
 from src.datasets.io_utils import (
     parse_eth3d_calib,
     parse_eth3d_calib_txt,
@@ -102,9 +103,11 @@ class ETH3DDataset:
         root: str | Path,
         split: str = "eval_test",
         scenes: Optional[Sequence[str]] = None,
+        fg_strategy: str = "unavailable",
     ) -> None:
         self.root = Path(root)
         self.split = split
+        self.fg_strategy = fg_strategy
 
         # Auto-detect layout
         if (self.root / "two_view_training").is_dir():
@@ -178,9 +181,13 @@ class ETH3DDataset:
             if pfm_path.is_file():
                 gt_disp, valid = read_eth3d_disp_pfm(pfm_path)
 
-        # ETH3D has no semantic foreground masks
+        # Foreground mask handling based on configured strategy
         fg_mask = None
         fg_prov = "unavailable"
+        if self.fg_strategy == "pretrained_seg":
+            fg_mask, fg_prov = pretrained_seg_mask(left_img)
+        elif self.fg_strategy == "geometric_proxy" and gt_disp is not None and valid is not None:
+            fg_mask, fg_prov = geometric_proxy_mask(gt_disp, valid)
 
         # Calibration — prefer calib.txt (simpler), fallback to COLMAP
         calib: Optional[Calibration] = None

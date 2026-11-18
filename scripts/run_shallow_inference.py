@@ -27,6 +27,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from src.datasets import (
+    Calibration,
     CustomPairDataset,
     ETH3DDataset,
     KITTI2015Dataset,
@@ -67,20 +68,30 @@ def parse_args() -> argparse.Namespace:
                         help="Save disparity and depth .npy arrays")
     parser.add_argument("--save-viz", action="store_true",
                         help="Save side-by-side visual comparison PNGs")
+    parser.add_argument("--f-px", type=float, default=None,
+                        help="Focal length in pixels (for custom pairs without calibration metadata)")
+    parser.add_argument("--baseline-m", type=float, default=None,
+                        help="Stereo baseline in metres (for custom pairs without calibration metadata)")
+    parser.add_argument("--fg-strategy", type=str, default="unavailable",
+                        choices=["unavailable", "pretrained_seg", "geometric_proxy"],
+                        help="Foreground extraction strategy (e.g. pretrained_seg using Mask R-CNN)")
     return parser.parse_args()
 
 
-def load_dataset(dataset_name: str, root: str, split: str):
+def load_dataset(dataset_name: str, root: str, split: str, f_px: Optional[float] = None, baseline_m: Optional[float] = None, fg_strategy: str = "unavailable"):
     root_path = Path(root)
     if not root_path.exists():
         raise FileNotFoundError(f"Dataset root does not exist: {root_path}")
 
     if dataset_name == "eth3d":
-        return ETH3DDataset(root=root_path, split=split)
+        return ETH3DDataset(root=root_path, split=split, fg_strategy=fg_strategy)
     elif dataset_name == "kitti":
         return KITTI2015Dataset(root=root_path, split=split)
     elif dataset_name == "custom":
-        return CustomPairDataset(root=root_path)
+        calib = None
+        if f_px is not None and baseline_m is not None:
+            calib = Calibration(f_px=f_px, baseline_m=baseline_m)
+        return CustomPairDataset(root=root_path, calib=calib, fg_strategy=fg_strategy)
     else:
         raise ValueError(f"Unknown dataset: {dataset_name}")
 
@@ -278,7 +289,14 @@ def main() -> int:
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    dataset = load_dataset(args.dataset, args.root, args.split)
+    dataset = load_dataset(
+        args.dataset,
+        args.root,
+        args.split,
+        f_px=args.f_px,
+        baseline_m=args.baseline_m,
+        fg_strategy=args.fg_strategy,
+    )
     configs = load_shallow_configs(args.config)
 
     methods_to_run = []

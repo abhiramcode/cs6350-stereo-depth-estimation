@@ -76,6 +76,36 @@ src/visualization/ → Rendering & report generation (Stage 5)
 - **`configs/deep_methods.yaml`**:
   - Unified configuration file defining `HITNet_ETH3D`, `HITNet_SceneFlow`, `Fast_ACVNet_Generalization`, `Fast_ACVNet_KITTI2015`, `DuskTillDawn_Fast`, and `DuskTillDawn_HighRes`.
 
+#### Stage 4: Unified Benchmarking Suite
+- **`src/datasets/fg_masking.py`**:
+  - Added `pretrained_seg_mask` using torchvision's Mask R-CNN ResNet-50 FPN with COCO weights.
+  - Provenance tagged `pretrained_seg` with score thresholding $\ge 0.5$ and cached weights.
+- **`src/datasets/eth3d.py`**:
+  - Added `fg_strategy` parameter supporting `"unavailable"` (default), `"pretrained_seg"` (Mask R-CNN), and `"geometric_proxy"`.
+- **`src/evaluation/metrics.py`**:
+  - Enhanced `compute_disparity_metrics`: Computes mutually valid metrics (`density_pct`, `epe`, `bad_1_0`, `bad_2_0`, `bad_3_0`, `d1_all`) AND all-valid GT metrics (`all_bad_1_0`, `all_bad_2_0`, `all_bad_3_0`, `all_d1`, `all_epe`) penalizing unpredicted pixels as outliers.
+  - Enhanced `compute_depth_metrics`: Added density tracking and bounded metric depth validation ($0.5\text{ m} \le Z \le 80.0\text{ m}$).
+- **`scripts/benchmark_unified.py`**:
+  - Unified non-interactive benchmark runner across classical and deep models on ETH3D and KITTI 2015.
+  - Dual-policy evaluation: mutually valid pixels vs all-valid ground truth pixels.
+  - Semantic foreground slicing (`obj_map` for KITTI, Mask R-CNN for ETH3D) vs whole-image evaluation.
+  - Hardware profiling: CPU name, core count, platform, peak host RAM (RSS via `resource.getrusage`), and peak VRAM.
+  - Generates `unified_benchmark_results.csv`, `summary_<dataset>_<split>.csv`, and `unified_benchmark_report.md`.
+
+#### Stage 5: Qualitative Failure Case Analysis & Visualization
+- **`src/visualization/grids.py`**:
+  - `render_3column_grid`: Exact 3-column assignment visual layout `[Estimated Depth Map, Left View, Right View]`.
+  - `render_diagnostic_grid`: 5-column diagnostic grid `[Left View, Ground Truth, Predicted Disparity, Error Heatmap, Metric Depth]`.
+  - `render_multimethod_grid`: Side-by-side comparative grid across multiple methods.
+  - `compute_error_heatmap`: Pixel-wise absolute disparity error, outlier thresholding, and colormapped error visualization.
+  - `colorize_disparity` and `colorize_depth`: High-contrast robust colormapping with masked invalids.
+- **`src/visualization/failure_analysis.py`**:
+  - `build_failure_case_catalog`: Extraction and classification of failure modes into 5 concrete physical/algorithmic categories.
+  - `export_failure_catalog`: JSON metadata serialization.
+- **`scripts/analyze_failures.py`**:
+  - CLI runner generating 3-column grids, diagnostic grids, multi-method comparisons, and markdown reports.
+  - Populates `outputs/failure_cases/`.
+
 ## Dataset Locations
 
 | Dataset | Path | Status | Details |
@@ -85,5 +115,5 @@ src/visualization/ → Rendering & report generation (Stage 5)
 | Custom | `data/custom_eval/` | ✅ Directory created | Ready for evaluation-day image pairs |
 
 ## Test Suite
-- **71 automated unit & integration tests** passing (`tests/test_datasets.py`, `tests/test_io_and_calib.py`, `tests/test_shallow_stereo.py`, `tests/test_hitnet.py`, `tests/test_acvnet.py`, `tests/test_dtd.py`, `tests/test_metrics.py`, `tests/test_scripts.py`).
+- **86 automated unit & integration tests** passing (`tests/test_visualization.py`, `tests/test_datasets.py`, `tests/test_io_and_calib.py`, `tests/test_shallow_stereo.py`, `tests/test_hitnet.py`, `tests/test_acvnet.py`, `tests/test_dtd.py`, `tests/test_metrics.py`, `tests/test_scripts.py`).
 

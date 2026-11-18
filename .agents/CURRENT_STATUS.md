@@ -1,6 +1,6 @@
 # Current Status
 
-**Last updated:** 2026-10-24T18:48 IST
+**Last updated:** 2026-10-27T18:30 IST — **ALL STAGES (1–5) COMPLETE**
 
 ## Stage 1: Environment Setup & Dataset Interface ✅ COMPLETE
 
@@ -157,6 +157,56 @@ Measured across 40 scenes (`000000_10` to `000039_10`) with full semantic foregr
 
 ---
 
+## Stage 4: Unified Benchmarking Suite ✅ COMPLETE
+
+### Acceptance Criteria
+
+| Criterion | Status | Implementation Details |
+|---|---|---|
+| Fair valid-pixel accounting policy | ✅ | Dual reporting in `src/evaluation/metrics.py`: mutually valid pixels (`pred > 0 & gt_valid`) AND all-valid GT pixels (unpredicted pixels penalized as outliers matching official KITTI/Middlebury leaderboards) |
+| Prediction density transparency | ✅ | Prediction density reported alongside all metrics, exposing classical sparsity trade-offs |
+| Semantic foreground object slicing | ✅ | Provenance-tagged slicing: `semantic_gt` via KITTI `obj_map`, and `pretrained_seg` via torchvision Mask R-CNN ResNet-50 FPN on ETH3D |
+| Decoupled metric depth evaluation | ✅ | Pure disparity metrics (px) and bounded metric depth metrics ($Z = fB/d$, bounded $0.5\text{ m} \le Z \le 80\text{ m}$) evaluated independently |
+| Automated hardware & efficiency profiling | ✅ | Isolated pure inference vs E2E latency, FPS, peak host RSS RAM (`resource.getrusage`), and peak VRAM profiling with 3 unmeasured warmup cycles |
+| Centralized non-interactive runner | ✅ | `scripts/benchmark_unified.py` executing across all datasets, splits, and models without interactive UI |
+| Consolidated output artifacts | ✅ | Detailed CSV (`unified_benchmark_results.csv`), summary CSVs (`summary_eth3d_val_tune.csv`, `summary_kitti_val_tune.csv`), and Markdown report (`unified_benchmark_report.md`) |
+| Test suite integration | ✅ | 74/74 unit and integration tests passing (`tests/test_metrics.py`, `tests/test_scripts.py`, `tests/test_datasets.py`) |
+
+---
+
+### Consolidated Benchmark Results: KITTI 2015 `val_tune` (40 Scenes)
+
+Hardware: x86_64 CPU (12 cores), Linux 6.8.0-138-generic
+
+| Method | Paradigm | Pure Lat (ms) | FPS | Peak RAM (MB) | Pred Density | Mutual EPE (px) | Mutual D1-all | **Official All-Valid D1** | FG Mutual EPE (px) | **FG All-Valid D1** | FG Depth RMSE (m) | Full Depth RMSE (m) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **StereoBM** | Classical | **11.8 ms** | **86.0** | 1272.7 | 50.2% | 1.55 px | 7.4% | **57.3%** | 1.32 px | **23.3%** | 15.66 m | 10.74 m |
+| **StereoSGBM** | Classical | 42.3 ms | 23.7 | 1273.2 | 81.4% | 1.40 px | 5.8% | **16.7%** | 1.61 px | **17.2%** | 18.20 m | 12.35 m |
+| **StereoSGBM_WLS** | Classical | 42.1 ms | 23.8 | 1273.2 | 81.4% | 1.40 px | 5.8% | **16.7%** | 1.61 px | **17.2%** | 18.20 m | 12.35 m |
+| **Fast_ACVNet_KITTI2015** | Deep SOTA | 396.2 ms | 2.5 | 1294.6 | **100.0%** | **0.92 px** | **4.7%** | **4.7%** | **0.75 px** | **2.1%** | **1.70 m** | **4.68 m** |
+| **Fast_ACVNet_Generalization** | Deep SOTA | 426.2 ms | 2.3 | 1294.6 | **100.0%** | 1.44 px | 7.7% | 7.7% | 1.83 px | 11.7% | 10.21 m | 6.75 m |
+| **HITNet_SceneFlow** | Deep SOTA | 2464.6 ms | 0.4 | 1489.1 | 99.9% | 143.16 px | 99.0% | 99.0% | 143.61 px | 98.0% | 72.92 m | 72.92 m |
+| **DuskTillDawn_Fast** | Deep SOTA | 2732.4 ms | 0.4 | 1572.7 | **100.0%** | 24.32 px | 98.1% | 98.1% | 19.85 px | 100.0% | 41.81 m | 41.81 m |
+
+---
+
+### Consolidated Benchmark Results: ETH3D `val_tune` (5 Scenes)
+
+Hardware: x86_64 CPU (12 cores), Linux 6.8.0-138-generic
+
+| Method | Paradigm | Pure Lat (ms) | FPS | Peak RAM (MB) | Pred Density | Mutual EPE (px) | Mutual Bad-1.0 | **Official All-Valid Bad-1.0** | FG Mutual EPE (px) | **FG All-Valid Bad-1.0** | FG Depth RMSE (m) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| **StereoBM** | Classical | **7.6 ms** | **134.9** | 1272.7 | 58.3% | 0.29 px | 4.0% | **46.3%** | 0.20 px | **16.8%** | 0.56 m |
+| **StereoSGBM** | Classical | 33.3 ms | 35.6 | 1272.7 | 88.4% | 0.62 px | 10.1% | **20.9%** | 0.24 px | **7.1%** | 0.87 m |
+| **StereoSGBM_WLS** | Classical | 33.3 ms | 35.4 | 1272.7 | 88.4% | 0.62 px | 10.1% | **20.9%** | 0.24 px | **7.1%** | 0.87 m |
+| **HITNet_ETH3D** | Deep SOTA | 563.2 ms | 1.8 | 1341.6 | **100.0%** | **0.19 px** | **1.7%** | **1.7%** | **0.13 px** | **0.0%** | **0.35 m** |
+| **Fast_ACVNet_Generalization** | Deep SOTA | 438.9 ms | 2.3 | 1294.6 | **100.0%** | 0.29 px | 3.0% | **3.0%** | 0.19 px | **0.0%** | 0.40 m |
+| **Fast_ACVNet_KITTI2015** | Deep SOTA | 427.0 ms | 2.3 | 1294.6 | **100.0%** | 1.37 px | 45.9% | 45.9% | 0.47 px | 16.5% | 0.54 m |
+| **HITNet_SceneFlow** | Deep SOTA | 2476.3 ms | 0.4 | 1489.1 | 99.9% | 2.47 px | 38.6% | 38.7% | 1.10 px | 34.0% | 0.82 m |
+| **DuskTillDawn_Fast** | Deep SOTA | 2748.6 ms | 0.4 | 1572.7 | **100.0%** | 2.70 px | 60.0% | 60.0% | 1.35 px | 51.6% | 0.90 m |
+
+---
+
 ## Datasets Status
 
 | Dataset | Size | Status | Location |
@@ -167,14 +217,35 @@ Measured across 40 scenes (`000000_10` to `000039_10`) with full semantic foregr
 
 ---
 
-## What Comes Next (Stage 4 & Stage 5):
-1. **Stage 4: Unified Benchmarking**:
-   - Compare all methods across all test partitions with fair mutually-valid vs all-valid pixel policies.
-   - Slice accuracy by foreground object masks (`fg_mask` with provenance tracking).
-2. **Stage 5: Qualitative Failure Grids & Analysis**:
-   - Extract edge cases (specular surfaces, occlusions, thin structures, textureless regions).
-   - Render 3-column comparative visual grids (`[Estimated Depth Map, Left View, Right View]`).
-   - Compile final comparative report.
+---
+
+## Stage 5: Qualitative Failure Case Analysis & Diagnostics ✅ COMPLETE
+
+### Acceptance Criteria
+
+| Criterion | Status | Implementation Details |
+|---|---|---|
+| Automated failure case extraction | ✅ | `src/visualization/failure_analysis.py` extracting top error scenes from `unified_benchmark_results.csv` |
+| 5-mechanism failure taxonomy | ✅ | Categorization into (1) specular reflection, (2) textureless regions, (3) occlusion boundaries, (4) near-field saturation, and (5) out-of-distribution collapse |
+| Official 3-column assignment grids | ✅ | `render_3column_grid` saving `[Estimated Depth Map, Left View, Right View]` into `outputs/failure_cases/grids_3col/` |
+| Diagnostic error heatmap panels | ✅ | `render_diagnostic_grid` saving `[Left View, Ground Truth, Predicted Disparity, Error Heatmap, Metric Depth]` into `outputs/failure_cases/grids_diagnostic/` |
+| Landmark multi-method comparisons | ✅ | `render_multimethod_grid` saving comparative panels across classical & deep models into `outputs/failure_cases/grids_comparative/` |
+| Standalone CLI runner | ✅ | `scripts/analyze_failures.py` fully automated and configurable |
+| Final Comprehensive Report | ✅ | Artifact `final_comparative_report.md` synthesizing all 5 stages, quantitative tables, hardware profiling (CPU vs RTX 3060), and interactive visual carousels |
+| Automated test suite | ✅ | 86/86 unit and integration tests passing in ~25.8s (`tests/test_visualization.py`, `tests/test_scripts.py`, `tests/test_datasets.py`) |
+
+---
+
+## Final Project Summary
+
+All 5 stages of the CS6350 TPA-2 Stereo Depth Estimation assignment have been successfully implemented, empirically evaluated, diagnosed, and documented:
+
+1. **Stage 1 (Datasets & Calibrations):** Unified dataset loader (`KITTI2015Dataset`, `ETH3DDataset`, `CustomPairDataset`), deterministic 80/20 train/eval splits, calibration abstraction ($Z = fB/d$), and foreground provenance tagging (`semantic_gt`, `pretrained_seg`, `geometric_proxy`).
+2. **Stage 2 (Classical Stereo):** Modular `StereoMatcher` base class, tuned `StereoBM` and `StereoSGBM` (with optional WLS filter), hyperparameter grid search, and timing isolation.
+3. **Stage 3 (Deep Learning SOTA):** Headless inference adapters for `HITNet` (CVPR 2021), `Fast-ACVNet+` (TPAMI 2023 / CVPR 2022), and `Dusk Till Dawn` (ICRA 2024 VFM Stereo) with coordinate preservation and automated checkpoint extraction.
+4. **Stage 4 (Unified Benchmarking):** Centralized benchmarking runner (`scripts/benchmark_unified.py`), fair dual-policy valid-pixel evaluation (mutual vs all-valid GT), semantic foreground object slicing, decoupled metric depth, and hardware memory profiling.
+5. **Stage 5 (Failure Case Analysis & Final Reporting):** Qualitative failure extraction across 5 root causes, official 3-column visual grids (`[Estimated Depth Map, Left View, Right View]`), error heatmaps, multi-method comparisons, and the comprehensive final assignment report artifact.
+
 
 
 

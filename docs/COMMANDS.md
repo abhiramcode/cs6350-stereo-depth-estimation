@@ -13,8 +13,10 @@ This handbook is a comprehensive, chronological reference for all commands and C
 5. [Stage 2: Shallow Stereo Parameter Tuning](#5-stage-2-shallow-stereo-parameter-tuning)
 6. [Stage 2: Shallow Stereo Inference & Benchmarking](#6-stage-2-shallow-stereo-inference--benchmarking)
 7. [Stage 3: Deep Stereo Inference & Benchmarking](#7-stage-3-deep-stereo-inference--benchmarking)
-8. [Unit & Integration Testing (Pytest)](#8-unit--integration-testing-pytest)
-9. [Directory & Artifact Reference](#9-directory--artifact-reference)
+8. [Stage 4: Unified Benchmarking Suite](#8-stage-4-unified-benchmarking-suite)
+9. [Stage 5: Qualitative Failure Case Analysis & Diagnostics](#9-stage-5-qualitative-failure-case-analysis--diagnostics)
+10. [Unit & Integration Testing (Pytest)](#10-unit--integration-testing-pytest)
+11. [Directory & Artifact Reference](#11-directory--artifact-reference)
 
 ---
 
@@ -304,27 +306,125 @@ uv run python scripts/run_deep_inference.py \
 
 ---
 
-## 8. Unit & Integration Testing (Pytest)
+---
 
-The repository maintains an automated, zero-regression test suite.
+## 8. Stage 4: Unified Benchmarking Suite
+
+Unified benchmarking runner: [`scripts/benchmark_unified.py`](file:///home/rasas/Documents/Abhiram-Files/CS6350/CS6350-Stereo-Depth-Estimation/cs6350-stereo-depth-estimation/scripts/benchmark_unified.py)
+
+Orchestrates cross-paradigm benchmarking across classical and deep methods on both ETH3D and KITTI 2015, enforcing:
+1. **Fair Valid-Pixel Policy:** Evaluates both mutually valid pixels and 100% of ground-truth valid pixels (where invalid/unpredicted pixels count as outliers), exposing the true sparsity vs. coverage trade-off.
+2. **Foreground Object Provenance:** Slices metrics on isolated foreground objects (`semantic_gt` for KITTI 2015, `pretrained_seg` via Mask R-CNN for ETH3D).
+3. **Decoupled Metric Spaces:** Disparity metrics (EPE, Bad-1.0/2.0/3.0, D1-all) and bounded metric depth metrics ($Z = fB/d$, RMSE, AbsRel for $0.5 \le Z \le 80$ m).
+4. **Computational Profiling:** Pure model inference latency, E2E latency, throughput (FPS), peak host RAM footprint (MB), and device specifications.
+
+### Running the Unified Benchmark
+
+```bash
+# 1. Run full benchmark across all datasets and methods (ETH3D + KITTI 2015 on val_tune)
+uv run python scripts/benchmark_unified.py --dataset all --split val_tune --methods all
+
+# 2. Run specifically on ETH3D with visual comparison figures
+uv run python scripts/benchmark_unified.py \
+    --dataset eth3d \
+    --split val_tune \
+    --methods all \
+    --save-viz
+
+# 3. Run specifically on KITTI 2015 with visual comparisons
+uv run python scripts/benchmark_unified.py \
+    --dataset kitti \
+    --split val_tune \
+    --methods StereoBM,StereoSGBM,Fast_ACVNet_KITTI2015 \
+    --save-viz
+
+# 4. Quick smoke run on 2 samples to verify benchmarking pipeline
+uv run python scripts/benchmark_unified.py \
+    --dataset eth3d \
+    --split val_tune \
+    --max-samples 2 \
+    --methods StereoBM,Fast_ACVNet_Generalization
+```
+
+### Unified Benchmark Flags & Options
+| Flag | Default | Description |
+|---|---|---|
+| `--dataset` | `all` | Target dataset: `eth3d`, `kitti`, or `all`. |
+| `--eth3d-root` | `data/eth3d` | Root directory for ETH3D. |
+| `--kitti-root` | `data/kitti2015` | Root directory for KITTI 2015. |
+| `--split` | `val_tune` | Dataset split partition: `val_tune`, `eval_test`, or `train_all`. |
+| `--methods` | `all` | Methods to run: `all`, `shallow`, `deep`, or comma-separated list (e.g. `StereoBM,Fast_ACVNet_KITTI2015`). |
+| `--shallow-config` | `configs/shallow_methods_tuned.yaml` | YAML configuration for tuned shallow methods. |
+| `--deep-config` | `configs/deep_methods.yaml` | YAML configuration for SOTA deep methods. |
+| `--eth3d-fg-strategy` | `pretrained_seg` | Strategy for ETH3D foreground masks: `pretrained_seg` (Mask R-CNN), `geometric_proxy`, or `unavailable`. |
+| `--output-dir` | `outputs/benchmarks` | Output directory for CSV records, summaries, visualizations, and report. |
+| `--max-samples` | `None` (all) | Limit number of evaluated samples per dataset. |
+| `--warmup` | `3` | Number of unmeasured warmup iterations before timing. |
+| `--min-depth` | `0.5` | Minimum valid depth in meters for bounded metric depth evaluation. |
+| `--max-depth` | `80.0` | Maximum valid depth in meters for bounded metric depth evaluation. |
+| `--save-viz` | `False` | Generate and save 4-panel visual comparison PNGs (Left RGB, GT Disp, Pred Disp, Pred Depth). |
+| `--save-maps` | `False` | Save disparity and depth `.npy` arrays. |
+
+---
+
+## 9. Stage 5: Qualitative Failure Case Analysis & Diagnostics
+
+Stage 5 isolates high-error scenes across both datasets, groups them into physical/algorithmic failure categories (specular reflections, textureless regions, occlusion boundaries, near-field saturation, out-of-distribution transfer), and renders official 3-column assignment grids (`[Estimated Depth Map, Left View, Right View]`), error heatmaps, and cross-method comparisons.
+
+### 9.1 Standard Failure Analysis Run
+
+Execute the automated failure extraction and grid rendering pipeline:
+
+```bash
+uv run python scripts/analyze_failures.py \
+    --benchmark-csv outputs/benchmarks/unified_benchmark_results.csv \
+    --output-dir outputs/failure_cases \
+    --top-k 5
+```
+
+### 9.2 Custom Options
+
+| Option | Values | Default | Description |
+|---|---|---|---|
+| `--benchmark-csv` | File path | `outputs/benchmarks/unified_benchmark_results.csv` | Path to benchmark results CSV |
+| `--output-dir` | Directory path | `outputs/failure_cases` | Output directory for failure artifacts |
+| `--kitti-dir` | Directory path | `data/kitti2015` | Path to KITTI 2015 root directory |
+| `--eth3d-dir` | Directory path | `data/eth3d` | Path to ETH3D root directory |
+| `--top-k` | Integer | `5` | Number of failure scenes to extract per category |
+| `--device` | `cpu`, `cuda`, `auto` | `cpu` | Execution device for rendering models |
+
+### 9.3 Generated Failure Artifacts
+
+Running `analyze_failures.py` populates:
+- `outputs/failure_cases/grids_3col/`: Official 3-column assignment grids (`[Estimated Depth Map, Left View, Right View]`).
+- `outputs/failure_cases/grids_diagnostic/`: Diagnostic error heatmap grids (`[Left View, Ground Truth, Predicted Disparity, Error Heatmap, Metric Depth]`).
+- `outputs/failure_cases/grids_comparative/`: Multi-method comparative panels across challenging scenes (`[Left View, GT, StereoBM, StereoSGBM, Fast-ACVNet, HITNet]`).
+- `outputs/failure_cases/failure_catalog.json`: Machine-readable JSON metadata catalog.
+- `outputs/failure_cases/failure_analysis_report.md`: Comprehensive Markdown failure analysis report.
+
+---
+
+## 10. Unit & Integration Testing (Pytest)
+
+The repository maintains an automated, zero-regression test suite with **86 automated tests**.
 
 | Command | Scope |
 |---|---|
-| `uv run pytest` | Run the complete project test suite (71+ tests). |
+| `uv run pytest` | Run the complete project test suite (86 automated tests). |
+| `uv run pytest tests/test_visualization.py` | Test 3-column grid rendering, colormapping, error heatmaps, and failure analyzer catalog logic. |
+| `uv run pytest tests/test_scripts.py` | Integration test for all runnable CLI scripts (`run_shallow_inference.py`, `tune_shallow_parameters.py`, `run_deep_inference.py`, `benchmark_unified.py`, `analyze_failures.py`). |
 | `uv run pytest tests/test_dtd.py` | Test Dusk Till Dawn VFM matcher (config, resolution validation, checkpoint error handling, synthetic & real inference). |
 | `uv run pytest tests/test_acvnet.py` | Test Fast-ACVNet deep matcher (config, checkpoint error handling, synthetic & real inference, resolution scaling). |
 | `uv run pytest tests/test_hitnet.py` | Test HITNet deep matcher (config, checkpoint validation, synthetic & real inference, resolution restoration). |
 | `uv run pytest tests/test_shallow_stereo.py` | Test shallow stereo matchers (synthetic pairs, invalid handling, calibration depth conversion, config serialization). |
-| `uv run pytest tests/test_metrics.py` | Test disparity metrics (EPE, Bad-N, D1-all, density) and metric-depth metrics (RMSE, AbsRel). |
-| `uv run pytest tests/test_datasets.py` | Test `StereoSample` schema, split partitioning, and foreground mask handlers. |
+| `uv run pytest tests/test_metrics.py` | Test disparity metrics (mutual vs. all-valid GT policies, EPE, Bad-N, D1-all, density) and metric-depth metrics (RMSE, AbsRel). |
+| `uv run pytest tests/test_datasets.py` | Test `StereoSample` schema, split partitioning, and foreground mask handlers (`semantic_gt`, `pretrained_seg`, `geometric_proxy`). |
 | `uv run pytest tests/test_io_and_calib.py` | Test PNG decoding, PFM endianness, calibration parsing, and $Z = fB/d$ conversions. |
-| `uv run pytest tests/test_scripts.py` | Integration test for CLI arguments and help flags on runnable scripts (`run_shallow_inference.py`, `tune_shallow_parameters.py`, `run_deep_inference.py`). |
-| `uv run pytest -v -k "DTD"` | Run only tests matching the name substring `DTD`. |
 | `uv run pytest --cov=src` | Run all tests with code coverage analysis. |
 
 ---
 
-## 9. Directory & Artifact Reference
+## 11. Directory & Artifact Reference
 
 Key project directories and output locations:
 
@@ -340,25 +440,38 @@ Key project directories and output locations:
 │   └── deep_methods.yaml           # SOTA deep methods (HITNet, Fast-ACVNet, Dusk Till Dawn)
 ├── data/
 │   ├── eth3d/                      # ETH3D Low-Res Two-View scenes (im0.png, im1.png, calib.txt, disp0GT.pfm)
-│   ├── kitti2015/                  # KITTI 2015 stereo benchmark (when downloaded)
+│   ├── kitti2015/                  # KITTI 2015 stereo benchmark (image_2, image_3, disp_occ_0, calib_cam_to_cam, obj_map)
 │   └── custom_eval/                # User-provided left/right evaluation pairs
 ├── docs/
 │   └── COMMANDS.md                 # This command handbook
 ├── outputs/
-│   ├── shallow_inference/          # Default inference run outputs
+│   ├── benchmarks/                 # Stage 4: Unified benchmarking results
+│   │   ├── summary_eth3d_val_tune.csv
+│   │   ├── summary_kitti_val_tune.csv
+│   │   ├── unified_benchmark_results.csv
+│   │   ├── unified_benchmark_report.md
+│   │   └── visualizations/
+│   ├── failure_cases/              # Stage 5: Qualitative failure cases and diagnostics
+│   │   ├── grids_3col/             # 3-column assignment grids [Estimated Depth, Left, Right]
+│   │   ├── grids_diagnostic/       # Diagnostic error heatmap panels
+│   │   ├── grids_comparative/      # Multi-method landmark comparison panels
+│   │   ├── failure_catalog.json    # Machine-readable JSON failure case catalog
+│   │   └── failure_analysis_report.md # Markdown failure case analysis report
+│   ├── shallow_inference/          # Default shallow inference outputs
 │   ├── shallow_tuned/              # Tuned shallow inference outputs
 │   └── deep_inference/             # Deep SOTA inference results (HITNet, Fast-ACVNet, DTD)
-│       ├── DuskTillDawn_Fast/visualizations/
-│       ├── Fast_ACVNet_Generalization/visualizations/
-│       ├── Fast_ACVNet_KITTI2015/visualizations/
-│       ├── HITNet_ETH3D/visualizations/
-│       ├── deep_inference_results.csv
-│       └── deep_inference_summary.json
 ├── scripts/
 │   ├── download_datasets.sh        # Dataset download automation
 │   ├── smoke_test_stage1.py        # Dataset & loader smoke testing
 │   ├── tune_shallow_parameters.py  # Hyperparameter grid search
 │   ├── run_shallow_inference.py    # Batch/single-pair classical stereo runner
-│   └── run_deep_inference.py       # Batch/single-pair SOTA deep stereo runner
-└── tests/                          # 71 automated unit and integration tests
+│   ├── run_deep_inference.py       # Batch/single-pair SOTA deep stereo runner
+│   ├── benchmark_unified.py        # Stage 4: Unified benchmarking suite
+│   └── analyze_failures.py         # Stage 5: Failure analysis & grid rendering
+├── src/
+│   ├── datasets/                   # Loaders, formats, calibration, and foreground masking
+│   ├── stereo/                     # Classical and deep SOTA matcher implementations
+│   ├── evaluation/                 # Fair evaluation metrics and decoupled depth metrics
+│   └── visualization/              # 3-column grids, diagnostic heatmaps, and failure analyzer
+└── tests/                          # 86 automated unit and integration tests
 ```

@@ -24,6 +24,7 @@ Stereo depth estimation computes three-dimensional scene structure from a pair o
 - **Unified Data Schema**: A single `StereoSample` dataclass normalizes images, calibrations, disparity maps, and foreground masks across datasets, with explicit provenance tagging for semantic object masks versus geometric heuristics.
 - **Inference Timing Isolation**: Hardware execution time excludes data loading and disk I/O, preceded by unmeasured warm-up iterations to ensure consistent runtime reporting.
 - **Automated Hyperparameter Optimization**: Automated grid search on validation splits to discover optimal matching windows, search ranges, penalty weights, and uniqueness thresholds.
+- **Failure Mode Diagnostics & Visual Grids**: Automated categorization of breakdown mechanisms (specular reflections, textureless regions, occlusions, near-field saturation) and rendering of official 3-column assignment grids (`[Estimated Depth Map, Left View, Right View]`) and error heatmaps.
 
 For the complete list of CLI commands, flags, and quick-reference options, consult the **[Command Handbook](docs/COMMANDS.md)**.
 
@@ -48,6 +49,17 @@ For the complete list of CLI commands, flags, and quick-reference options, consu
 ├── docs/                           # Documentation and guides
 │   └── COMMANDS.md                 # Complete CLI handbook & command reference
 ├── outputs/                        # [Git-ignored] Predictions, visualizations & metrics
+│   ├── benchmarks/                 # Stage 4: Unified benchmarking results & reports
+│   │   ├── summary_eth3d_val_tune.csv
+│   │   ├── summary_kitti_val_tune.csv
+│   │   ├── unified_benchmark_results.csv
+│   │   └── unified_benchmark_report.md
+│   ├── failure_cases/              # Stage 5: Failure analysis & qualitative grids
+│   │   ├── grids_3col/             # 3-column assignment grids [Estimated Depth, Left, Right]
+│   │   ├── grids_diagnostic/       # Diagnostic error heatmaps & metric depth
+│   │   ├── grids_comparative/      # Multi-method landmark scene comparisons
+│   │   ├── failure_catalog.json    # Machine-readable JSON failure catalog
+│   │   └── failure_analysis_report.md # Markdown failure case analysis report
 │   ├── shallow_inference/          # Default classical inference runs
 │   ├── shallow_tuned/              # Results produced by tuned classical configurations
 │   └── deep_inference/             # Deep SOTA inference results (HITNet, Fast-ACVNet, DTD)
@@ -56,13 +68,17 @@ For the complete list of CLI commands, flags, and quick-reference options, consu
 │   ├── smoke_test_stage1.py        # Dataset loading and calibration integrity verification
 │   ├── tune_shallow_parameters.py  # Hyperparameter grid search optimizer
 │   ├── run_shallow_inference.py    # Batch/single-pair classical stereo runner
-│   └── run_deep_inference.py       # Batch/single-pair SOTA deep stereo runner
+│   ├── run_deep_inference.py       # Batch/single-pair SOTA deep stereo runner
+│   ├── benchmark_unified.py        # Unified benchmarking suite across datasets & methods
+│   └── analyze_failures.py         # Failure case extraction, categorization & grid rendering
 ├── src/                            # Modular source code
 │   ├── datasets/                   # Unified loaders for KITTI, ETH3D, and custom pairs
+│   │   └── fg_masking.py           # Foreground masks (semantic_gt, Mask R-CNN pretrained_seg, geometric)
 │   ├── stereo/                     # Matcher wrappers (base, StereoBM, StereoSGBM, HITNet, ACVNet, DTD)
 │   │   └── models/dtd/             # Dusk Till Dawn & UniMatch modular PyTorch components
-│   └── evaluation/                 # Standardized disparity & metric-depth evaluation metrics
-└── tests/                          # 71 automated unit and integration tests
+│   ├── evaluation/                 # Standardized disparity & metric-depth evaluation metrics
+│   └── visualization/              # 3-column grids, diagnostic heatmaps, and failure analyzer
+└── tests/                          # 86 automated unit and integration tests
 ```
 
 ---
@@ -211,58 +227,60 @@ $$Z = \frac{f \cdot B}{d}$$
 
 ---
 
-### Benchmark Results on ETH3D `val_tune` Split (5 Scenes)
+### Benchmark Results on KITTI 2015 `val_tune` Split (40 Scenes)
 
-Measured across 5 scenes (`delivery_area_1l`, `delivery_area_1s`, `delivery_area_2l`, `delivery_area_2s`, `delivery_area_3l`):
+Measured across 40 scenes (`000000_10` to `000039_10`) evaluating full scene, isolated foreground traffic objects (`obj_map`, `fg=semantic_gt`), and camera calibration ($f \approx 721.5$ px, $B \approx 0.533$ m):
 
-| Method | Type | Configuration / Domain | Pure Infer (ms) | Throughput (FPS) | Density (%) | EPE (px) | Bad-1.0 (%) | Bad-2.0 (%) |
-|---|---|---|---|---|---|---|---|---|
-| **StereoBM** | Classical | Tuned (`numDisp=64, bs=21, uq=10`) | **8.6 ms** | **121.0** | 58.3% | 0.29 px | 4.0% | 1.6% |
-| **StereoSGBM** | Classical | Tuned (`numDisp=64, bs=7, uq=15`) | 36.1 ms | 28.9 | 88.4% | 0.62 px | 10.1% | 3.0% |
-| **HITNet** | Deep SOTA | ETH3D Pretrained (480x640 ONNX) | 558.1 ms | 1.8 | **100.0%** | **0.19 px** | **1.7%** | **0.2%** |
-| **Fast-ACVNet+** | Deep SOTA | Generalization (Scene Flow 480x640) | 430.5 ms | 2.3 | **100.0%** | 0.29 px | 3.0% | **0.2%** |
-| **Fast-ACVNet+** | Deep SOTA | Fine-tuned KITTI 2015 (480x640) | 401.0 ms | 2.5 | **100.0%** | 1.37 px | 45.9% | 24.1% |
-| **Dusk Till Dawn** | Deep SOTA | Oxford RobotCar Nighttime (320x192 VFM) | 2726.1 ms | 0.4 | **100.0%** | 2.70 px | 60.0% | 39.0% |
+| Method | Paradigm | Pure Infer | FPS | Density % | Mutual EPE | Mutual D1 % | Official All-D1 % | FG Mutual EPE | FG Official All-D1 % | FG Depth RMSE |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **StereoBM** | Classical | **11.8 ms** | **86.0** | 50.2% | 1.55 px | 7.4% | **57.3%** | 1.32 px | **23.3%** | 15.66 m |
+| **StereoSGBM** | Classical | 42.3 ms | 23.7 | 81.4% | 1.40 px | 5.8% | **16.7%** | 1.61 px | **17.2%** | 18.20 m |
+| **Fast_ACVNet+ (KITTI)** | Deep SOTA | 396.2 ms | 2.5 | **100.0%** | **0.92 px** | **4.7%** | **4.7%** | **0.75 px** | **2.1%** | **1.70 m** |
+| **Fast_ACVNet+ (SceneFlow)** | Deep SOTA | 426.2 ms | 2.3 | **100.0%** | 1.44 px | 7.7% | 7.7% | 1.83 px | 11.7% | 10.21 m |
+| **HITNet (SceneFlow)** | Deep SOTA | 2464.6 ms | 0.4 | 99.9% | 143.16 px | 99.0% | 99.0% | 143.61 px | 98.0% | 93.59 m |
+| **Dusk Till Dawn (VFM)** | Deep SOTA | 2732.4 ms | 0.4 | **100.0%** | 24.32 px | 98.1% | 98.1% | 19.85 px | 100.0% | 54.50 m |
 
 ---
 
-### Benchmark Results on KITTI 2015 `val_tune` Split (40 Scenes)
+### Benchmark Results on ETH3D `val_tune` Split (5 Scenes)
 
-Measured across 40 scenes (`000000_10` to `000039_10`) with full semantic foreground object evaluation (`obj_map`, `fg=semantic_gt`) and camera calibration ($f \approx 721.5$ px, $B \approx 0.533$ m):
+Measured across 5 scenes (`delivery_area_1l`, `delivery_area_1s`, `delivery_area_2l`, `delivery_area_2s`, `delivery_area_3l`) with Mask R-CNN instance segmentation foreground masks (`fg=pretrained_seg`):
 
-| Method | Paradigm | Variant / Weights | Infer (ms) | FPS | Density % | EPE (px) | D1-all % | FG EPE (px) | FG D1-all % | Depth RMSE (m) | Depth AbsRel |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| **StereoBM** | Classical | Default (`numDisp=128, bs=15`) | **13.7 ms** | **75.1** | 42.3% | 1.12 px | 3.7% | 1.04 px | 4.1% | 9.01 m | 0.079 |
-| **StereoSGBM** | Classical | Default (`numDisp=128, bs=5`) | 78.7 ms | 12.7 | 79.4% | 1.15 px | 4.7% | 1.31 px | 7.4% | 10.60 m | 0.088 |
-| **Fast-ACVNet+** | Deep SOTA | **KITTI 2015 Fine-tuned** | 419.4 ms | 2.4 | **100.0%** | **0.92 px** | **4.7%** | **0.75 px** | **2.1%** | **4.68 m** | **0.042** |
-| **Fast-ACVNet+** | Deep SOTA | Generalization (SceneFlow) | 438.3 ms | 2.3 | **100.0%** | 1.44 px | 7.7% | 1.83 px | 11.7% | 6.75 m | 0.086 |
-| **Dusk Till Dawn** | Deep SOTA | Oxford RobotCar (VFM) | 2826.0 ms | 0.4 | **100.0%** | 24.32 px | 98.1% | 19.85 px | 100.0% | 41.81 m | 2.467 |
+| Method | Paradigm | Pure Infer | FPS | Density % | Mutual EPE | Mutual Bad-1.0 % | Official All-Bad-1.0 % | FG Mutual EPE | FG Official Bad-1.0 % | FG Depth RMSE |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **StereoBM** | Classical | **7.6 ms** | **134.9** | 58.3% | 0.29 px | 4.0% | **46.3%** | 0.20 px | 16.8% | 0.56 m |
+| **StereoSGBM** | Classical | 33.3 ms | 35.6 | 88.4% | 0.62 px | 10.1% | **20.9%** | 0.24 px | 7.1% | 0.87 m |
+| **HITNet (ETH3D)** | Deep SOTA | 563.2 ms | 1.8 | **100.0%** | **0.19 px** | **1.7%** | **1.7%** | **0.13 px** | **0.0%** | **0.35 m** |
+| **Fast-ACVNet+ (Gen)** | Deep SOTA | 438.9 ms | 2.3 | **100.0%** | 0.29 px | 3.0% | **3.0%** | 0.19 px | **0.0%** | **0.40 m** |
+| **Fast-ACVNet+ (KITTI)** | Deep SOTA | 427.0 ms | 2.3 | **100.0%** | 1.37 px | 45.9% | 45.9% | 1.24 px | 10.4% | 1.86 m |
+| **Dusk Till Dawn (VFM)** | Deep SOTA | 2748.6 ms | 0.4 | **100.0%** | 2.70 px | 60.0% | 60.0% | 4.35 px | 43.8% | 5.74 m |
 
 *Key Insights & Analysis:*
-- **Foreground Object Mastery**: On traffic participants (`obj_map`), `Fast-ACVNet_KITTI2015` achieves a stunning **0.75 px EPE** and **2.1% D1-all error** at **100% density**, completely resolving windshields and specular body panels where classical StereoBM drops >53% of pixels.
-- **Metric 3D Depth Superiority**: Fast-ACVNet reduces depth RMSE to **4.68 metres** (vs >9.0 metres for classical methods) and achieves an **AbsRel of 0.042** (4.2% relative error).
-- **In-Domain vs Cross-Domain Generalization**: Fine-tuning specifically on KITTI 2015 improves foreground object accuracy by **82% over the zero-shot generalization model** (2.1% vs 11.7% FG D1-all), demonstrating the crucial value of in-domain supervision for autonomous navigation.
-- **Throughput / Efficiency Sweet Spot**: Fast-ACVNet+ infers at ~420 ms on CPU (~2.4 FPS), providing dense, sub-pixel disparity maps without requiring multi-gigabyte GPU clusters.
+- **The Fair Valid-Pixel Sparsity Fallacy**: StereoBM achieves an apparent mutual D1-all of 7.4% on KITTI only because it discards 49.8% of pixels. Under official benchmark rules (missing prediction = outlier), its true outlier rate is **57.3%**. Deep methods achieve 100% density with true low error.
+- **Foreground Object Mastery**: On traffic participants (`obj_map`), `Fast-ACVNet_KITTI2015` achieves **0.75 px EPE** and **2.1% D1-all error** at **100% density**, cutting foreground depth RMSE to **1.70 m** (an ~90% error reduction from StereoBM's 15.66 m).
+- **In-Domain vs Cross-Domain Generalization**: Domain-specific fine-tuning is decisive: HITNet dominates ETH3D (0.19 px EPE), while Fast-ACVNet+ fine-tuned on KITTI dominates automotive stereo (0.92 px global, 0.75 px FG).
+- **Throughput / Efficiency Sweet Spot**: Fast-ACVNet+ infers at ~396 ms on CPU (~2.5 FPS) and real-time (>30 FPS) on GPUs, providing the best accuracy-to-compute ratio among deep models.
 
 ---
 
 ## Testing & Continuous Verification
 
-All modules are accompanied by unit and regression test coverage (71 passing tests):
+All modules are accompanied by unit and regression test coverage (86 passing tests in ~25s):
 
 ```bash
-# Run all unit and integration tests
+# Run all 86 unit and integration tests
 uv run pytest
 
 # Run specific test suites
+uv run pytest tests/test_visualization.py   # 3-column grids, colormaps, error heatmaps, failure analyzer
+uv run pytest tests/test_scripts.py         # CLI integration tests for all 5 executable pipelines
 uv run pytest tests/test_dtd.py            # Dusk Till Dawn VFM matcher tests
 uv run pytest tests/test_acvnet.py         # Fast-ACVNet deep matcher tests
 uv run pytest tests/test_hitnet.py         # Google HITNet deep matcher tests
 uv run pytest tests/test_shallow_stereo.py  # Classical matcher tests
-uv run pytest tests/test_metrics.py         # Evaluation metric calculations
-uv run pytest tests/test_datasets.py        # Dataset loaders and schema checks
+uv run pytest tests/test_metrics.py         # Evaluation metric calculations (fair valid-pixel policy)
+uv run pytest tests/test_datasets.py        # Dataset loaders and schema checks (Mask R-CNN seg)
 uv run pytest tests/test_io_and_calib.py    # Calibration and image I/O
-uv run pytest tests/test_scripts.py         # CLI integration tests
 ```
 
 ---

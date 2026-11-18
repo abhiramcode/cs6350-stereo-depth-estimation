@@ -84,27 +84,74 @@ def _find_pairs_flat(root: Path) -> List[Tuple[str, Path, Path]]:
 
 
 def _load_optional_calib(root: Path) -> Optional[Calibration]:
-    """Load calibration from ``calib.yaml`` if present."""
-    calib_path = root / "calib.yaml"
-    if not calib_path.is_file():
-        return None
-    try:
-        with open(calib_path, "r") as f:
-            cfg = yaml.safe_load(f)
-        f_px = float(cfg["f_px"])
-        baseline_m = float(cfg["baseline_m"])
-        return Calibration(f_px=f_px, baseline_m=baseline_m)
-    except Exception as exc:
-        logger.warning("Could not parse %s: %s", calib_path, exc)
-        return None
+    """Load calibration from calib.yaml, calib.json, or calib.txt if present."""
+    # 1. YAML format
+    calib_yaml = root / "calib.yaml"
+    if calib_yaml.is_file():
+        try:
+            with open(calib_yaml, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f)
+            return Calibration(f_px=float(cfg["f_px"]), baseline_m=float(cfg["baseline_m"]))
+        except Exception as exc:
+            logger.warning("Could not parse %s: %s", calib_yaml, exc)
+
+    # 2. JSON format
+    calib_json = root / "calib.json"
+    if calib_json.is_file():
+        try:
+            import json
+            with open(calib_json, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            return Calibration(f_px=float(cfg["f_px"]), baseline_m=float(cfg["baseline_m"]))
+        except Exception as exc:
+            logger.warning("Could not parse %s: %s", calib_json, exc)
+
+    # 3. Text format (calib.txt)
+    calib_txt = root / "calib.txt"
+    if calib_txt.is_file():
+        try:
+            # Try Middlebury/ETH3D format first
+            from src.datasets.io_utils import parse_eth3d_calib_txt
+            f_px, b_m, _, _ = parse_eth3d_calib_txt(calib_txt)
+            return Calibration(f_px=f_px, baseline_m=b_m)
+        except Exception:
+            pass
+
+        try:
+            # Try key-value or yaml in .txt
+            with open(calib_txt, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            fields = {}
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    fields[k.strip().lower()] = float(v.strip())
+                elif ":" in line:
+                    k, v = line.split(":", 1)
+                    fields[k.strip().lower()] = float(v.strip())
+
+            f_val = fields.get("f_px") or fields.get("f") or fields.get("focal_length")
+            b_val = fields.get("baseline_m") or fields.get("b") or fields.get("baseline")
+            if f_val is not None and b_val is not None:
+                return Calibration(f_px=float(f_val), baseline_m=float(b_val))
+        except Exception as exc:
+            logger.warning("Could not parse %s: %s", calib_txt, exc)
+
+    return None
 
 
 class CustomPairDataset:
     """Iterator over arbitrary stereo image pairs for evaluation-day inference.
 
     Parameters:
-        root:   Path to the custom dataset directory.
-        pairs:  Optional explicit list of ``(scene_id, left_path, right_path)``.
+        root:        Path to the custom dataset directory.
+        pairs:       Optional explicit list of ``(scene_id, left_path, right_path)``.
+        calib:       Optional explicit ``Calibration`` instance overriding on-disk metadata.
+        fg_strategy: Foreground mask extraction strategy: ``"unavailable"`` (default),
+                     ``"pretrained_seg"`` (Mask R-CNN), or ``"geometric_proxy"``.
     """
 
     DATASET_NAME = "custom"
@@ -113,8 +160,11 @@ class CustomPairDataset:
         self,
         root: str | Path,
         pairs: Optional[Sequence[Tuple[str, str | Path, str | Path]]] = None,
+        calib: Optional[Calibration] = None,
+        fg_strategy: str = "unavailable",
     ) -> None:
         self.root = Path(root)
+        self.fg_strategy = fg_strategy
 
         if pairs is not None:
             self._pairs = [
@@ -128,7 +178,7 @@ class CustomPairDataset:
         if not self._pairs:
             logger.warning("No stereo pairs found in %s", self.root)
 
-        self._calib = _load_optional_calib(self.root)
+        self._calib = calib if calib is not None else _load_optional_calib(self.root)
 
     def __len__(self) -> int:
         return len(self._pairs)
@@ -148,6 +198,13 @@ class CustomPairDataset:
         right_img = read_image_rgb(right_path)
         H, W = left_img.shape[:2]
 
+        # Handle foreground mask extraction
+        fg_mask = None
+        fg_provenance = "unavailable"
+        if self.fg_strategy == "pretrained_seg":
+            from src.datasets.fg_masking import pretrained_seg_mask
+            fg_mask, fg_provenance = pretrained_seg_mask(left_img)
+
         return StereoSample(
             dataset_name=self.DATASET_NAME,
             split="custom",
@@ -159,7 +216,7 @@ class CustomPairDataset:
             img_size=(H, W),
             gt_disparity=None,
             valid_mask=None,
-            fg_mask=None,
-            fg_mask_provenance="unavailable",
+            fg_mask=fg_mask,
+            fg_mask_provenance=fg_provenance,
             calib=self._calib,
         )

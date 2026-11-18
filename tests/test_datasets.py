@@ -216,6 +216,30 @@ class TestCustomPairDataset:
         assert sample.calib.f_px == pytest.approx(600.0)
         assert sample.calib.baseline_m == pytest.approx(0.1)
 
+    def test_with_calib_txt(self, custom_root: Path):
+        calib_yaml = custom_root / "calib.yaml"
+        if calib_yaml.is_file():
+            calib_yaml.unlink()
+
+        calib_txt = custom_root / "calib.txt"
+        calib_txt.write_text("f_px = 750.5\nbaseline_m = 0.25\n")
+
+        ds = CustomPairDataset(custom_root)
+        sample = ds[0]
+        assert sample.has_calib
+        assert sample.calib.f_px == pytest.approx(750.5)
+        assert sample.calib.baseline_m == pytest.approx(0.25)
+        calib_txt.unlink()
+
+    def test_with_explicit_calib_argument(self, custom_root: Path):
+        from src.datasets.schema import Calibration
+        explicit = Calibration(f_px=800.0, baseline_m=0.3)
+        ds = CustomPairDataset(custom_root, calib=explicit)
+        sample = ds[0]
+        assert sample.has_calib
+        assert sample.calib.f_px == pytest.approx(800.0)
+        assert sample.calib.baseline_m == pytest.approx(0.3)
+
     def test_empty_dir(self, tmp_path: Path):
         ds = CustomPairDataset(tmp_path)
         assert len(ds) == 0
@@ -246,3 +270,15 @@ class TestGeometricProxyMask:
         mask, prov = geometric_proxy_mask(disp, valid)
         assert not np.any(mask)
         assert prov == "geometric_proxy"
+
+
+class TestPretrainedSegMask:
+    def test_pretrained_seg_synthetic(self):
+        from src.datasets.fg_masking import pretrained_seg_mask
+        # Small synthetic image
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        mask, prov = pretrained_seg_mask(img)
+        assert prov == "pretrained_seg"
+        assert mask is not None
+        assert mask.shape == (100, 100)
+        assert mask.dtype == bool
